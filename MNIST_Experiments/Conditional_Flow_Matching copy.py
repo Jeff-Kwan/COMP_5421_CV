@@ -189,8 +189,8 @@ def plot_samples(model):
     plt.show()
 
 def main():
-    batch_size = 64
-    num_epochs = 10
+    batch_size = 128
+    num_epochs = 50
     dataloader = get_dataloader(batch_size)
     
     model = FlowMatchingNet().to(device)
