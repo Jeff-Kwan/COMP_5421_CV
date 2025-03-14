@@ -29,7 +29,7 @@ def generate_trajectory(model, digit, x, t, device):
 def plot_trajectory(model, digit, device):
     '''Euler up to defined timestep and the 1-step prediction'''
     # Define multiple trajectories with different intermediate timesteps.
-    t_list = [list(np.linspace(0, inter, 20))+[1] for inter in np.linspace(0.1, 0.9, 9)]
+    t_list = [list(np.linspace(0, inter, 20))+[1] for inter in np.linspace(0.0, 1.0, 11)]
     trajectories = []
     x_init = torch.randn(1, 1, 28, 28, device=device)   # Fixed initial sample.
     for t in t_list:
@@ -53,6 +53,7 @@ def plot_trajectory(model, digit, device):
             # Add a title to the top row for each column.
             if i == 0:
                 ax.set_title(f"t = {t_list[j][-2]:.2f}")
+    plt.suptitle(f"20-step Euler Integration then 1-step Prediction at t for digit {digit}")
     plt.tight_layout()
     plt.savefig(f'MNIST_Experiments/Output/trajectory_digit_{digit}.png')
 
