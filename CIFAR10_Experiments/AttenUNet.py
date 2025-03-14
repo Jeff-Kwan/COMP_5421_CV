@@ -26,13 +26,13 @@ class ResBlock(nn.Module):
         return x
 
 class AttenUNet(nn.Module):
-    def __init__(self, layers=3, channels=24):
+    def __init__(self, in_c, out_c, layers=3, channels=24):
         super(AttenUNet, self).__init__()
         self.layers = layers - 1    # Original resolution is 1 layer
         self.channels = channels
         self.classes = 10
 
-        self.in_conv = nn.Conv2d(1, self.channels, 3, 1, 1, bias=False)
+        self.in_conv = nn.Conv2d(in_c, self.channels, 3, 1, 1, bias=False)
         self.in_norm = nn.GroupNorm(1, self.channels, affine=False)
         self.t_embed = nn.Linear(2, self.channels)
 
@@ -59,7 +59,7 @@ class AttenUNet(nn.Module):
         self.decoder_blocks = nn.ModuleList([ResBlock(self.channels, self.classes) for _ in range(self.layers)])
 
         self.out_norm = nn.GroupNorm(1, self.channels, affine=False)
-        self.out = nn.Conv2d(self.channels, 1, kernel_size=1, stride=1, padding=0)
+        self.out = nn.Conv2d(self.channels, out_c, kernel_size=1, stride=1, padding=0)
         
     def forward(self, x, t, c):
         x = self.in_conv(x)

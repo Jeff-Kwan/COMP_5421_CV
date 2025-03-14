@@ -93,7 +93,7 @@ def generate_samples(model, classes, num_steps=100, fixed_sample=None):
 
     return x
 
-def plot_digit_samples(model, steps=20, fixed_sample=None):
+def plot_object_samples(model, steps=20, fixed_sample=None):
     # Plot character generation 0-9
     classes = torch.arange(10).to(device)
     samples = generate_samples(model, classes, num_steps=steps, fixed_sample=fixed_sample)
@@ -102,10 +102,10 @@ def plot_digit_samples(model, steps=20, fixed_sample=None):
     for i, ax in enumerate(axes.flat):
         ax.imshow(samples[i, 0], cmap='gray')
         ax.axis('off')
-        ax.set_title(f"Digit {i}")
-    plt.suptitle("Generated sample digits")
+        ax.set_title(f"object {i}")
+    plt.suptitle("Generated sample objects")
     plt.tight_layout()
-    plt.savefig(f"CIFAR10_Experiments/Output/sample_digits-{steps}-steps.png")
+    plt.savefig(f"CIFAR10_Experiments/Output/sample_objects-{steps}-steps.png")
 
 def train_model():
     batch_size = 64
@@ -113,11 +113,11 @@ def train_model():
     learning_rate = 3e-4
     weight_decay = 1e-3
     layers = 3
-    channels = 24
+    channels = 32
     dataloader = get_dataloader(batch_size)
     
-    model = AttenUNet(layers, channels).to(device)
-    # model = torch.compile(model)
+    model = AttenUNet(3, 3, layers, channels).to(device)
+    model = torch.compile(model)
     print("Starting training flow matching model...")
     print(f"Number of parameters: {sum(p.numel() for p in model.parameters())}")
     train_flow_matching(model, dataloader, num_epochs=num_epochs, lr=learning_rate, wd=weight_decay)
@@ -126,7 +126,7 @@ def train_model():
     steps = [1, 2, 3, 4, 5, 10, 20, 50]
     fixed_sample = torch.randn(1, 1, 28, 28, device=device)
     for step in steps:
-        plot_digit_samples(model, step, fixed_sample)
+        plot_object_samples(model, step, fixed_sample)
 
 if __name__ == '__main__':
     os.makedirs("CIFAR10_Experiments/Output", exist_ok=True)
