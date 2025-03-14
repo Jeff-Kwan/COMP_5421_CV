@@ -17,10 +17,11 @@ class ResBlock(nn.Module):
         self.norm = nn.ModuleList([nn.GroupNorm(1, channels, affine=False) for _ in range(self.num_blocks)])
         self.c_embed = nn.Embedding(classes, 2*channels)
 
-    def forward(self, x, c):
-        c_mu, c_logvar = self.c_embed(c).view(-1, self.channels*2, 1, 1).chunk(2, dim=1)
-        c_std = torch.exp(0.5 * c_logvar)
-        x = c_std * x + c_mu
+    def forward(self, x, c=None):
+        if c is not None:
+            c_mu, c_logvar = self.c_embed(c).view(-1, self.channels*2, 1, 1).chunk(2, dim=1)
+            c_std = torch.exp(0.5 * c_logvar)
+            x = c_std * x + c_mu
         for i in range(self.num_blocks):
             x = self.norm[i](x + self.blocks[i](x))
         return x
@@ -127,13 +128,13 @@ class ResU_VAE(nn.Module):
         self.out_norm = nn.GroupNorm(1, self.channels, affine=False)
         self.out = nn.Conv2d(self.channels, 1, kernel_size=1, stride=1, padding=0)
 
-    def encode(self, x, c):
+    def encode(self, x):
         x = self.in_conv(x)
         x = self.in_norm(x)
 
         # Encoder
         for i in range(self.layers):
-            x = self.encoder_blocks[i](x, c)
+            x = self.encoder_blocks[i](x)
             x = self.downs[i](x)
 
         x = self.latent_norm(x)
@@ -146,19 +147,19 @@ class ResU_VAE(nn.Module):
         eps = torch.randn_like(std)
         return mu + eps * std
     
-    def decode(self, z, c):
+    def decode(self, z):
         x = self.reconstruct(z.view(-1, self.channels, 1, 1))
         for i in range(self.layers):
             x = self.ups[i](x)
-            x = self.decoder_blocks[i](x, c)
+            x = self.decoder_blocks[i](x)
 
         x = self.out_norm(x)
         x = self.out(x)
         return x
 
         
-    def forward(self, x, c):
-        mu, logvar = self.encode(x, c)
+    def forward(self, x):
+        mu, logvar = self.encode(x)
         z = self.reparameterize(mu, logvar)
-        x = self.decode(z, c)
+        x = self.decode(z)
         return x, mu, logvar
