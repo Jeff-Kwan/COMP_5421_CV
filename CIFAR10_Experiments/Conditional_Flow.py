@@ -33,7 +33,7 @@ def train_flow_matching(model, dataloader, num_epochs=5, lr=1e-3, wd=1e-2):
     for epoch in range(num_epochs):
         epoch_loss = 0.0
         for images, classes in tqdm(dataloader, desc=f"Epoch {epoch+1}/{num_epochs}", unit="batch"):
-            images = images.to(device, non_blocking=True)  # CIFAR10 images: [batch, 1, 28,28]
+            images = images.to(device, non_blocking=True) 
             classes = classes.to(device, non_blocking=True)
 
             batch = images.shape[0]
@@ -76,7 +76,7 @@ def generate_samples(model, classes, num_steps=100, fixed_sample=None):
 
     # Start from pure noise (i.e. at time t=0).
     if fixed_sample is None:
-        x = torch.randn(B, 1, 28, 28, device=device)
+        x = torch.randn(B, 3, 32, 32, device=device)
     else:
         x = fixed_sample.to(device)
 
@@ -94,13 +94,14 @@ def generate_samples(model, classes, num_steps=100, fixed_sample=None):
     return x
 
 def plot_object_samples(model, steps=20, fixed_sample=None):
-    # Plot character generation 0-9
+    # Plot character generation 0-9 as RGB images
     classes = torch.arange(10).to(device)
     samples = generate_samples(model, classes, num_steps=steps, fixed_sample=fixed_sample)
-    samples = samples.cpu().numpy()
+    # Convert samples from (B, C, H, W) to (B, H, W, C) for RGB representation
+    samples = samples.clamp(0, 1).cpu().numpy().transpose(0, 2, 3, 1)
     fig, axes = plt.subplots(2, 5, figsize=(10, 4))
     for i, ax in enumerate(axes.flat):
-        ax.imshow(samples[i, 0], cmap='gray')
+        ax.imshow(samples[i])
         ax.axis('off')
         ax.set_title(f"object {i}")
     plt.suptitle("Generated sample objects")
@@ -118,13 +119,14 @@ def train_model():
     
     model = AttenUNet(3, 3, layers, channels).to(device)
     # model = torch.compile(model)
-    print("Starting training flow matching model...")
-    print(f"Number of parameters: {sum(p.numel() for p in model.parameters())}")
-    train_flow_matching(model, dataloader, num_epochs=num_epochs, lr=learning_rate, wd=weight_decay)
+    # print("Starting training flow matching model...")
+    # print(f"Number of parameters: {sum(p.numel() for p in model.parameters())}")
+    # train_flow_matching(model, dataloader, num_epochs=num_epochs, lr=learning_rate, wd=weight_decay)
+    model.load_state_dict(torch.load("CIFAR10_Experiments/Output/CIFAR10_flow_model.pth", weights_only=True))
 
     print("Generating samples...")
     steps = [1, 2, 3, 4, 5, 10, 20, 50]
-    fixed_sample = torch.randn(1, 1, 28, 28, device=device)
+    fixed_sample = torch.randn(10, 3, 32, 32, device=device)
     for step in steps:
         plot_object_samples(model, step, fixed_sample)
 
