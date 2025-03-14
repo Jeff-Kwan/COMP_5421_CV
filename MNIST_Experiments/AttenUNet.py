@@ -93,3 +93,72 @@ class AttenUNet(nn.Module):
         x = self.out_norm(x)
         x = self.out(x)
         return x
+    
+
+
+class ResU_VAE(nn.Module):
+    def __init__(self, layers=3, channels=24):
+        super(ResU_VAE, self).__init__()
+        self.layers = layers - 1    # Original resolution is 1 layer
+        self.channels = channels
+        self.classes = 10
+
+        self.in_conv = nn.Conv2d(1, self.channels, 3, 1, 1, bias=False)
+        self.in_norm = nn.GroupNorm(1, self.channels, affine=False)
+
+        # Encoder 
+        self.encoder_blocks = nn.ModuleList([ResBlock(self.channels, self.classes) for _ in range(self.layers)])
+        self.downs = nn.ModuleList([nn.Conv2d(self.channels, self.channels, 2, 2, 0, bias=None) 
+                                    for _ in range(self.layers)])
+
+        # Latent space Reparameterization
+        self.latent_norm = nn.GroupNorm(1, self.channels, affine=False)
+        self.fc_mu = nn.Conv2d(self.channels, self.channels, 7, 1, 0, bias=False)
+        self.fc_logvar = nn.Conv2d(self.channels, self.channels, 7, 1, 0, bias=False)
+        self.reconstruct = nn.Sequential(
+            nn.ConvTranspose2d(self.channels, self.channels, 7, 1, 0, bias=False),
+            nn.GroupNorm(1, self.channels, affine=False))
+
+        # Decoder
+        self.ups = nn.ModuleList([nn.ConvTranspose2d(self.channels, self.channels, 2, 2, 0, bias=False)
+                        for _ in range(self.layers)])
+        self.decoder_blocks = nn.ModuleList([ResBlock(self.channels, self.classes) for _ in range(self.layers)])
+
+        self.out_norm = nn.GroupNorm(1, self.channels, affine=False)
+        self.out = nn.Conv2d(self.channels, 1, kernel_size=1, stride=1, padding=0)
+
+    def encode(self, x, c):
+        x = self.in_conv(x)
+        x = self.in_norm(x)
+
+        # Encoder
+        for i in range(self.layers):
+            x = self.encoder_blocks[i](x, c)
+            x = self.downs[i](x)
+
+        x = self.latent_norm(x)
+        mu = self.fc_mu(x)
+        logvar = self.fc_logvar(x)
+        return mu, logvar
+    
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+    
+    def decode(self, z, c):
+        x = self.reconstruct(z.view(-1, self.channels, 1, 1))
+        for i in range(self.layers):
+            x = self.ups[i](x)
+            x = self.decoder_blocks[i](x, c)
+
+        x = self.out_norm(x)
+        x = self.out(x)
+        return x
+
+        
+    def forward(self, x, c):
+        mu, logvar = self.encode(x, c)
+        z = self.reparameterize(mu, logvar)
+        x = self.decode(z, c)
+        return x, mu, logvar
