@@ -117,7 +117,7 @@ def train_model():
     dataloader = get_dataloader(batch_size)
     
     model = AttenUNet(3, 3, layers, channels).to(device)
-    model = torch.compile(model)
+    # model = torch.compile(model)
     print("Starting training flow matching model...")
     print(f"Number of parameters: {sum(p.numel() for p in model.parameters())}")
     train_flow_matching(model, dataloader, num_epochs=num_epochs, lr=learning_rate, wd=weight_decay)
