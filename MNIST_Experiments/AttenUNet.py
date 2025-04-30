@@ -98,11 +98,12 @@ class AttenUNet(nn.Module):
 
 
 class ResU_VAE(nn.Module):
-    def __init__(self, layers=3, channels=24):
+    def __init__(self, layers=3, channels=24, latent=2):
         super(ResU_VAE, self).__init__()
         self.layers = layers - 1    # Original resolution is 1 layer
         self.channels = channels
         self.classes = 10
+        self.latent = latent
 
         self.in_conv = nn.Conv2d(1, self.channels, 3, 1, 1, bias=False)
         self.in_norm = nn.GroupNorm(1, self.channels, affine=False)
@@ -114,10 +115,10 @@ class ResU_VAE(nn.Module):
 
         # Latent space Reparameterization
         self.latent_norm = nn.GroupNorm(1, self.channels, affine=False)
-        self.fc_mu = nn.Conv2d(self.channels, self.channels, 7, 1, 0, bias=False)
-        self.fc_logvar = nn.Conv2d(self.channels, self.channels, 7, 1, 0, bias=False)
+        self.fc_mu = nn.Conv2d(self.channels, self.latent, 7, 1, 0, bias=False)
+        self.fc_logvar = nn.Conv2d(self.channels, self.latent, 7, 1, 0, bias=False)
         self.reconstruct = nn.Sequential(
-            nn.ConvTranspose2d(self.channels, self.channels, 7, 1, 0, bias=False),
+            nn.ConvTranspose2d(self.latent, self.channels, 7, 1, 0, bias=False),
             nn.GroupNorm(1, self.channels, affine=False))
 
         # Decoder
@@ -148,7 +149,7 @@ class ResU_VAE(nn.Module):
         return mu + eps * std
     
     def decode(self, z):
-        x = self.reconstruct(z.view(-1, self.channels, 1, 1))
+        x = self.reconstruct(z.view(-1, self.latent, 1, 1))
         for i in range(self.layers):
             x = self.ups[i](x)
             x = self.decoder_blocks[i](x)

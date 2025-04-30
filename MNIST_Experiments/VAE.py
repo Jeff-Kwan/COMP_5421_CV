@@ -49,9 +49,9 @@ def test(model, test_loader):
 def plot_sampled_digits(model):
     model.eval()
     with torch.no_grad():
-        z = torch.randn(64, model.channels).to(device)
+        z = torch.randn(64, model.latent).to(device)
         samples = model.decode(z).cpu()
-        vutils.save_image(samples, "MNIST_Experiments/Output/VAE/vae_sampled_digits.png", nrow=8)
+        vutils.save_image(samples, "MNIST_Experiments/Output/VAE/D2vae_sampled_digits.png", nrow=8)
 
 
 def plot_digit_interpolation(model, digits, steps=10):
@@ -64,7 +64,7 @@ def plot_digit_interpolation(model, digits, steps=10):
         for i in range(steps):
             z_interpolated[i] = (1 - i/(steps-1)) * z[0] + (i/(steps-1)) * z[1]
         samples = model.decode(z_interpolated).cpu()
-        vutils.save_image(samples, "MNIST_Experiments/Output/VAE/vae_digit_interpolation.png", nrow=steps)
+        vutils.save_image(samples, "MNIST_Experiments/Output/VAE/D2vae_digit_interpolation.png", nrow=steps)
 
         
 def main():
@@ -84,7 +84,7 @@ def main():
     for epoch in range(1, epochs + 1):
         train(model, train_loader, optimizer, epoch, scheduler)
         test(model, test_loader)
-        torch.save(model.state_dict(), "MNIST_Experiments/Output/VAE/vae.pth")
+        torch.save(model.state_dict(), "MNIST_Experiments/Output/VAE/D2vae.pth")
 
         # Generate samples from the learned distribution
         plot_sampled_digits(model)
