@@ -10,6 +10,8 @@ from torchvision import datasets, transforms
 from tqdm import tqdm
 
 from AttnUNet2 import AttenUNet
+import signal
+import sys
 # ----------------------------------------------------------------------------
 def get_mnist_dataloader(batch_size: int, num_workers: int = 2) -> DataLoader:
     """Load MNIST using the standard DataLoader."""
@@ -142,4 +144,8 @@ def main():
     )
 
 if __name__ == "__main__":
+    def handle_sigint(signal, frame):
+        print("\nExiting gracefully...")
+        sys.exit(0)
+    signal.signal(signal.SIGINT, handle_sigint)
     main()
