@@ -4,7 +4,7 @@ import os
 import threading
 import queue
 import time
-import random
+from random import random
 
 import torch
 import torch.nn as nn
@@ -106,7 +106,7 @@ def train_2rectified_flow(model, device_train, q, args, stop_event, mnist_loader
 
     for step in range(max_steps):
         # pick real or synthetic
-        if torch.rand(1).item() < (max_steps - step) / max_steps:
+        if random() < (max_steps - step) / max_steps:
             try:
                 imgs, labels = next(real_iter)
             except StopIteration:
@@ -198,8 +198,6 @@ def main(args):
         gen_models.append(m)
         print(f"Instantiated generator-model on {dev}")
 
-    # ─── here’s the change: shuffle=True so that each new iter(mnist_loader)
-    # will re-shuffle the real MNIST images ────────────────────────────────
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.5,), (0.5,)),
