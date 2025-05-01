@@ -262,7 +262,7 @@ def main(args):
     for model, dev in zip(gen_models, device_gens):
         t = threading.Thread(
             target=generate_synthetic,
-            args=(model, dev, device_train, q, args, stop_event, reload_event),
+            args=(model, dev, q, args, stop_event, reload_event),
             daemon=True
         )
         t.start()
