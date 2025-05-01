@@ -118,12 +118,12 @@ def train_2rectified_flow(model, device_train, q, args, stop_event, mnist_loader
     mse       = nn.MSELoss()
 
     real_iter = iter(mnist_loader)
-    pbar = tqdm(total=max_steps, desc=f"Training (on {device_train})", unit="step")
+    pbar = tqdm(total=max_steps, desc=f"Training (on {device_train})")
 
     loss_window = []
     avg_losses = []
     save_steps = []
-    real_base_p = 0.33
+    real_base_p = 1/3
     for step in range(max_steps):
         # choose real vs. synthetic
         if random() < (real_base_p + (1-real_base_p)*(max_steps-step)/max_steps):
@@ -188,7 +188,7 @@ def train_2rectified_flow(model, device_train, q, args, stop_event, mnist_loader
             loss_window.clear()
 
             plt.figure()
-            plt.plot(save_steps, avg_losses, marker='o')
+            plt.plot(save_steps, avg_losses)
             plt.xlabel('Training Step')
             plt.ylabel('Average Loss')
             plt.title('Average Training Loss per Checkpoint')
