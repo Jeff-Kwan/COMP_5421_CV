@@ -15,7 +15,7 @@ from tqdm import tqdm
 
 from AttnUNet2 import AttenUNet
 
-
+@torch.no_grad()
 def generate_samples(model, classes, num_steps, device):
     model.eval()
     B = classes.size(0)
@@ -30,7 +30,7 @@ def generate_samples(model, classes, num_steps, device):
             t += dt
     return x.clamp(-1.0, 1.0)
 
-
+@torch.no_grad()
 def generate_synthetic(model, device_gen, device_train, q, args, stop_event, reload_event):
     """
     Continuously generate (x0, x1, cls) tuples.
@@ -165,7 +165,7 @@ def train_2rectified_flow(model, device_train, q, args, stop_event, mnist_loader
 def main(args):
     # GPUs
     ngpus = torch.cuda.device_count()
-    args["queue_size"] = int(2 * args['batch_gen'] / args['batch_train'] * ngpus)
+    args["queue_size"] = int(args['batch_gen'] / args['batch_train'] * ngpus)
     if ngpus < 2:
         raise RuntimeError(f"Need at least 2 GPUs, found {ngpus}")
     device_train = torch.device("cuda:0")
