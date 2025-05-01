@@ -17,6 +17,21 @@ import matplotlib.pyplot as plt
 from AttnUNet2 import AttenUNet
 
 
+@torch.no_grad()
+def generate_samples(model, classes, num_steps, device):
+    model.eval()
+    B = classes.size(0)
+    x = torch.randn(B, 1, 28, 28, device=device)
+    t = 0.0
+    dt = 1.0 / num_steps
+    for _ in range(num_steps):
+        t_tensor = torch.full((B,), t, device=device)
+        v = model(x, t_tensor, classes)
+        x = x + dt * v
+        t += dt
+    return x.clamp(-1.0, 1.0)
+
+
 def drop_oldest_put(q: queue.Queue, item):
     """
     Try to put item into q without blocking. If q is full,
@@ -33,29 +48,13 @@ def drop_oldest_put(q: queue.Queue, item):
 
 
 @torch.no_grad()
-def generate_samples(model, classes, num_steps, device):
-    model.eval()
-    B = classes.size(0)
-    x = torch.randn(B, 1, 28, 28, device=device)
-    t = 0.0
-    dt = 1.0 / num_steps
-    for _ in range(num_steps):
-        t_tensor = torch.full((B,), t, device=device)
-        v = model(x, t_tensor, classes)
-        x = x + dt * v
-        t += dt
-    return x.clamp(-1.0, 1.0)
-
-
-@torch.no_grad()
-def generate_synthetic(model, device_gen, device_train, q, args, stop_event, reload_event):
+def generate_synthetic_cpu_queue(model, device_gen, q, args, stop_event, reload_event):
     """
-    Continuously generate (x0, x1, cls) tuples.
+    Continuously generate (x0, x1, cls) tuples **on CPU**.
     If the queue is full, drop the oldest before inserting new.
-    Whenever reload_event is set, reloads the latest checkpoint.
+    Whenever reload_event is set, reload latest checkpoint.
     """
     batch_gen   = args["batch_gen"]
-    batch_train = args["batch_train"]
     num_steps   = args["gen_steps"]
     num_classes = args.get("num_classes", 10)
     ckpt_path   = os.path.join(args["save_path"], "MNIST_bootstrapping-rectified.pth")
@@ -71,14 +70,12 @@ def generate_synthetic(model, device_gen, device_train, q, args, stop_event, rel
                 print(f"[{device_gen}] Failed to reload weights: {e}")
             reload_event.clear()
 
-        # sample a batch of classes and noise
+        # sample classes & integrate on generator GPU
         cls = torch.randint(0, num_classes, (batch_gen,), device=device_gen)
         x0  = torch.randn(batch_gen, 1, 28, 28, device=device_gen)
         x   = x0.clone()
         t   = 0.0
         dt  = 1.0 / num_steps
-
-        # integrate forward ODE
         for _ in range(num_steps):
             t_tensor = torch.full((batch_gen,), t, device=device_gen)
             v        = model(x, t_tensor, cls)
@@ -86,26 +83,24 @@ def generate_synthetic(model, device_gen, device_train, q, args, stop_event, rel
             t       += dt
         x1 = x.clamp(-1.0, 1.0)
 
-        # push sub‐batches into the queue,
-        # dropping oldest when full
+        # split into sub-batches, move to CPU, enqueue
         for x0_c, x1_c, cls_c in zip(
-                x0.split(batch_train),
-                x1.split(batch_train),
-                cls.split(batch_train)
+                x0.split(args["batch_train"]),
+                x1.split(args["batch_train"]),
+                cls.split(args["batch_train"])
         ):
             sample = (
-                x0_c.to(device_train, non_blocking=True),
-                x1_c.to(device_train, non_blocking=True),
-                cls_c.to(device_train, non_blocking=True),
+                x0_c.detach().cpu(),
+                x1_c.detach().cpu(),
+                cls_c.detach().cpu(),
             )
             drop_oldest_put(q, sample)
 
 
-def train_2rectified_flow(model, device_train, q, args, stop_event, mnist_loader, reload_event):
+def train_2rectified_flow_cpu_queue(model, device_train, q, args, stop_event, mnist_loader, reload_event):
     """
-    Alternate real MNIST / synthetic steps; after each checkpoint save,
-    write both numbered and 'latest' checkpoint, set reload_event,
-    and plot & save average loss to loss.png.
+    Exactly as before, except each synthetic batch is moved
+    from CPU→GPU here (so cuda:0 isn’t constantly hit by generators).
     """
     max_steps   = args["train_steps"]
     lr          = args["lr"]
@@ -125,25 +120,27 @@ def train_2rectified_flow(model, device_train, q, args, stop_event, mnist_loader
     real_iter = iter(mnist_loader)
     pbar = tqdm(total=max_steps, desc=f"Training (on {device_train})", unit="step")
 
-    # for loss tracking
     loss_window = []
     avg_losses = []
     save_steps = []
 
     for step in range(max_steps):
-        # pick real or synthetic
+        # choose real vs. synthetic
         if random() < (max_steps - step) / max_steps:
             try:
                 imgs, labels = next(real_iter)
             except StopIteration:
                 real_iter = iter(mnist_loader)
                 imgs, labels = next(real_iter)
-
             x1  = imgs.to(device_train, non_blocking=True)
             cls = labels.to(device_train, non_blocking=True)
             x0  = torch.randn_like(x1, device=device_train)
         else:
-            x0, x1, cls = q.get()
+            # get CPU tensors, then move to GPU here
+            x0_cpu, x1_cpu, cls_cpu = q.get()
+            x0 = x0_cpu.to(device_train, non_blocking=True)
+            x1 = x1_cpu.to(device_train, non_blocking=True)
+            cls = cls_cpu.to(device_train, non_blocking=True)
 
         b = x0.size(0)
         t = torch.rand(b, device=device_train)
@@ -159,9 +156,7 @@ def train_2rectified_flow(model, device_train, q, args, stop_event, mnist_loader
         opt.step()
         scheduler.step()
 
-        # record loss
         loss_window.append(loss.item())
-
         pbar.set_postfix(
             step=step+1,
             loss=f"{loss.item():.4f}",
@@ -169,13 +164,12 @@ def train_2rectified_flow(model, device_train, q, args, stop_event, mnist_loader
         )
         pbar.update(1)
 
-        # checkpoint & plot
         if (step + 1) % 500 == 0 or (step + 1) == max_steps:
-            # save checkpoint
+            # save & signal reload
             torch.save(model.state_dict(), ckpt_latest)
             reload_event.set()
 
-            # save sample grid
+            # samples & loss plot as before...
             samples = generate_samples(
                 model,
                 torch.arange(num_classes, device=device_train),
@@ -188,13 +182,11 @@ def train_2rectified_flow(model, device_train, q, args, stop_event, mnist_loader
                 nrow=5, normalize=True, value_range=(-1,1)
             )
 
-            # compute and record average loss for this interval
             avg_loss = sum(loss_window) / len(loss_window) if loss_window else 0.0
             avg_losses.append(avg_loss)
             save_steps.append(step + 1)
             loss_window.clear()
 
-            # plot and save
             plt.figure()
             plt.plot(save_steps, avg_losses, marker='o')
             plt.xlabel('Training Step')
@@ -207,7 +199,6 @@ def train_2rectified_flow(model, device_train, q, args, stop_event, mnist_loader
     pbar.close()
     stop_event.set()
     print("✓ 2-Rectified-flow training complete.")
-
 
 def main(args):
     # GPUs
