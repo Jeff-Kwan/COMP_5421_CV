@@ -34,17 +34,18 @@ def generate_samples(model, classes, num_steps, device):
 
 def drop_oldest_put(q: queue.Queue, item):
     """
-    Try to put item into q without blocking. If q is full,
+    Put item into q without blocking. If q is full,
     drop the oldest element and then enqueue the new item.
     """
-    try:
-        q.put(item, block=False)
-    except queue.Full:
+    while True:
         try:
-            q.get(block=False)
-        except queue.Empty:
-            pass
-        q.put(item, block=False)
+            q.put(item, block=False)
+            break
+        except queue.Full:
+            try:
+                q.get_nowait()
+            except queue.Empty:
+                break
 
 
 @torch.no_grad()
