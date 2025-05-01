@@ -54,6 +54,12 @@ def generate_synthetic(model, device_gen, device_train, q, args, stop_event, rel
                 print(f"[{device_gen}] Reloaded weights from {ckpt_path}")
             except Exception as e:
                 print(f"[{device_gen}] Failed to reload weights: {e}")
+            try:
+                with q.mutex:
+                   q.queue.clear()
+                print(f"Cleared queue")
+            except Exception as e:
+                print(f"Failed to clear queue: {e}")
             reload_event.clear()
 
         cls = torch.randint(0, num_classes, (batch_gen,), device=device_gen)
@@ -141,7 +147,7 @@ def train_2rectified_flow(model, device_train, q, args, stop_event, mnist_loader
         )
         pbar.update(1)
 
-        if (step + 1) % 200 == 0 or (step + 1) == max_steps:
+        if (step + 1) % 500 == 0 or (step + 1) == max_steps:
             torch.save(model.state_dict(), ckpt_latest)
             reload_event.set()
 
@@ -165,7 +171,6 @@ def train_2rectified_flow(model, device_train, q, args, stop_event, mnist_loader
 def main(args):
     # GPUs
     ngpus = torch.cuda.device_count()
-    args["queue_size"] = int(args['batch_gen'] / args['batch_train'] * ngpus)
     if ngpus < 2:
         raise RuntimeError(f"Need at least 2 GPUs, found {ngpus}")
     device_train = torch.device("cuda:0")
@@ -253,8 +258,9 @@ if __name__ == "__main__":
         "heads":            2,
         "batch_gen":      1024,
         "batch_train":    128,
+        "queue_size":      64,
         "gen_steps":       20,
-        "train_steps":  20000,
+        "train_steps":  50000,
         "lr":           3e-4,
         "wd":            1e-2,
         "num_classes":    10,
