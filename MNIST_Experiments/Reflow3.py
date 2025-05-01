@@ -12,6 +12,7 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 from torchvision.utils import save_image
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 from AttnUNet2 import AttenUNet
 
@@ -90,7 +91,8 @@ def generate_synthetic(model, device_gen, device_train, q, args, stop_event, rel
 def train_2rectified_flow(model, device_train, q, args, stop_event, mnist_loader, reload_event):
     """
     Alternate real MNIST / synthetic steps; after each checkpoint save,
-    write both numbered and 'latest' checkpoint and set reload_event.
+    write both numbered and 'latest' checkpoint, set reload_event,
+    and plot & save average loss to loss.png.
     """
     max_steps   = args["train_steps"]
     lr          = args["lr"]
@@ -110,13 +112,17 @@ def train_2rectified_flow(model, device_train, q, args, stop_event, mnist_loader
     real_iter = iter(mnist_loader)
     pbar = tqdm(total=max_steps, desc=f"Training (on {device_train})", unit="step")
 
+    # for loss tracking
+    loss_window = []
+    avg_losses = []
+    save_steps = []
+
     for step in range(max_steps):
         # pick real or synthetic
         if random() < (max_steps - step) / max_steps:
             try:
                 imgs, labels = next(real_iter)
             except StopIteration:
-                # Start a new "epoch" of MNIST — this re-seeds the shuffle
                 real_iter = iter(mnist_loader)
                 imgs, labels = next(real_iter)
 
@@ -140,6 +146,9 @@ def train_2rectified_flow(model, device_train, q, args, stop_event, mnist_loader
         opt.step()
         scheduler.step()
 
+        # record loss
+        loss_window.append(loss.item())
+
         pbar.set_postfix(
             step=step+1,
             loss=f"{loss.item():.4f}",
@@ -147,10 +156,13 @@ def train_2rectified_flow(model, device_train, q, args, stop_event, mnist_loader
         )
         pbar.update(1)
 
+        # checkpoint & plot
         if (step + 1) % 500 == 0 or (step + 1) == max_steps:
+            # save checkpoint
             torch.save(model.state_dict(), ckpt_latest)
             reload_event.set()
 
+            # save sample grid
             samples = generate_samples(
                 model,
                 torch.arange(num_classes, device=device_train),
@@ -162,6 +174,23 @@ def train_2rectified_flow(model, device_train, q, args, stop_event, mnist_loader
                 os.path.join(save_path, "samples-bootstrapping-rect.png"),
                 nrow=5, normalize=True, value_range=(-1,1)
             )
+
+            # compute and record average loss for this interval
+            avg_loss = sum(loss_window) / len(loss_window) if loss_window else 0.0
+            avg_losses.append(avg_loss)
+            save_steps.append(step + 1)
+            loss_window.clear()
+
+            # plot and save
+            plt.figure()
+            plt.plot(save_steps, avg_losses, marker='o')
+            plt.xlabel('Training Step')
+            plt.ylabel('Average Loss')
+            plt.title('Average Training Loss per Checkpoint')
+            plt.grid(True)
+            plt.tight_layout()
+            plt.savefig(os.path.join(save_path, "loss_bootstrap.png"))
+            plt.close()
 
     pbar.close()
     stop_event.set()
@@ -256,7 +285,7 @@ if __name__ == "__main__":
         "layers":           3,
         "channels":        16,
         "heads":            2,
-        "batch_gen":      2048,
+        "batch_gen":      512,
         "batch_train":    128,
         "queue_size":      128,
         "gen_steps":       20,
