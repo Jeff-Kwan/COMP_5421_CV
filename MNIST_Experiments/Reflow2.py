@@ -122,15 +122,15 @@ def train_2rectified_flow(model, device_train, q, args, stop_event):
         pbar.update(1)
 
         # periodically save samples & checkpoint
-        if step % 200 == 0 or step == max_steps:
+        if step % 100 == 0 or step == max_steps:
             samples = generate_samples(model,
                                        torch.arange(args.get("num_classes",10), device=device_train),
                                        args["gen_steps"], device_train)
             save_image(samples,
-                       f"{save_path}/samples-2-rect-step{step}.png",
+                       f"{save_path}/samples-2-rect.png",
                        nrow=5, normalize=True, value_range=(-1,1))
             torch.save(model.state_dict(),
-                       f"{save_path}/MNIST_2-rectified-step{step}.pth")
+                       f"{save_path}/MNIST_2-rectified.pth")
 
     pbar.close()
     stop_event.set()
@@ -192,11 +192,11 @@ if __name__ == "__main__":
         "heads":            2,
 
         # generator ↔ trainer interface
-        "batch_gen":      4096,   # samples per generator pass
+        "batch_gen":      1024,   # samples per generator pass
         "batch_train":    128,    # samples per training step
 
         "gen_steps":       20,    # Euler steps for generation
-        "train_steps":  20000,    # total training iterations
+        "train_steps":  10000,    # total training iterations
         "lr":           3e-4,
         "wd":            1e-2,
 
