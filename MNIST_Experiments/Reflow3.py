@@ -66,7 +66,6 @@ def generate_synthetic(model, device_gen, q, args, stop_event, reload_event):
         if reload_event.is_set():
             try:
                 model.load_state_dict(torch.load(ckpt_path, map_location="cpu"))
-                print(f"[{device_gen}] Reloaded weights from {ckpt_path}")
             except Exception as e:
                 print(f"[{device_gen}] Failed to reload weights: {e}")
             reload_event.clear()
@@ -124,10 +123,10 @@ def train_2rectified_flow(model, device_train, q, args, stop_event, mnist_loader
     loss_window = []
     avg_losses = []
     save_steps = []
-
+    real_base_p = 0.33
     for step in range(max_steps):
         # choose real vs. synthetic
-        if random() < (max_steps - step) / max_steps:
+        if random() < (real_base_p + (1-real_base_p)*(max_steps-step)/max_steps):
             try:
                 imgs, labels = next(real_iter)
             except StopIteration:
