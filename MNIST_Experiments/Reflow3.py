@@ -106,7 +106,7 @@ def train_2rectified_flow(model, device_train, q, args, stop_event, mnist_loader
 
     for step in range(max_steps):
         # pick real or synthetic
-        if step % 2 == 0:
+        if torch.rand(1).item() < (max_steps - step) / max_steps:
             try:
                 imgs, labels = next(real_iter)
             except StopIteration:
