@@ -192,7 +192,7 @@ if __name__ == "__main__":
         "heads":            2,
 
         # generator ↔ trainer interface
-        "batch_gen":      2048,   # samples per generator pass
+        "batch_gen":      4096,   # samples per generator pass
         "batch_train":    128,    # samples per training step
 
         "gen_steps":       20,    # Euler steps for generation
