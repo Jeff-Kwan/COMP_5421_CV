@@ -141,9 +141,7 @@ def train_2rectified_flow(model, device_train, q, args, stop_event, mnist_loader
         )
         pbar.update(1)
 
-        if (step + 1) % 100 == 0 or (step + 1) == max_steps:
-            num_path = os.path.join(save_path, f"MNIST_bootstrapping-rectified.pth")
-            torch.save(model.state_dict(), num_path)
+        if (step + 1) % 200 == 0 or (step + 1) == max_steps:
             torch.save(model.state_dict(), ckpt_latest)
             reload_event.set()
 
