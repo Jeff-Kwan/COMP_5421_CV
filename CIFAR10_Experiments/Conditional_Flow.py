@@ -4,10 +4,10 @@ from tqdm import tqdm
 import os
 
 import torch.nn as nn
-import torch.nn.functional as F
 import matplotlib.pyplot as plt
 
 from AttenUNet import AttenUNet
+from torchvision.utils import save_image
 
 # Device configuration
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -16,31 +16,31 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Load CIFAR10 dataset
 def get_dataloader(batch_size=128):
     transform = transforms.Compose([
-        transforms.ToTensor()
-    ])
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize((0.5,)*3,(0.5,)*3) ])
     train_dataset = datasets.CIFAR10(root="./data", train=True, download=True, transform=transform)
     dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, 
-                                             num_workers=2, pin_memory=True)
+                                             num_workers=4, pin_memory=True, persistent_workers=True)
     return dataloader
 
 # Training procedure using flow matching.
 def train_flow_matching(model, dataloader, num_epochs=5, lr=1e-3, wd=1e-2):
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, num_epochs, eta_min=1e-8)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, num_epochs)
     mse_loss = nn.MSELoss()
 
-    model.train()
     for epoch in range(num_epochs):
+        model.train()
         epoch_loss = 0.0
         for images, classes in tqdm(dataloader, desc=f"Epoch {epoch+1}/{num_epochs}", unit="batch"):
-            images = images.to(device, non_blocking=True) 
+            images = images.to(device, non_blocking=True)  # CIFAR10 images: [batch, 1, 32,32]
             classes = classes.to(device, non_blocking=True)
 
             batch = images.shape[0]
 
             # Sample a random scalar time t uniformly in [0, 1] for each sample.
             t = torch.rand(batch, device=device)
-            # t = torch.zeros(batch, device=device).float()
 
             # Sample noise images from Normal distribution.
             noise = torch.randn_like(images, device=device)
@@ -59,15 +59,18 @@ def train_flow_matching(model, dataloader, num_epochs=5, lr=1e-3, wd=1e-2):
 
             optimizer.zero_grad()
             loss.backward()
+            norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
 
             epoch_loss += loss.item() * batch
 
         scheduler.step()
         avg_loss = epoch_loss / len(dataloader.dataset)
+        save_image(generate_samples(model, torch.arange(10).to(device), num_steps=30), 
+               f"CIFAR10_Experiments/Output/samples.png", 
+               nrow=5, normalize=True, value_range=(-1, 1))
+        torch.save(model.state_dict(), "CIFAR10_Experiments/Output/CIFAR10_flow_model.pth")
         print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.6f}")
-
-    torch.save(model.state_dict(), "CIFAR10_Experiments/Output/CIFAR10_flow_model.pth")
 
 # Generate new samples via Euler integration using the learned flow field.
 def generate_samples(model, classes, num_steps=100, fixed_sample=None):
@@ -93,42 +96,39 @@ def generate_samples(model, classes, num_steps=100, fixed_sample=None):
 
     return x
 
-def plot_object_samples(model, steps=20, fixed_sample=None):
-    # Plot character generation 0-9 as RGB images
+def plot_digit_samples(model, steps=20, fixed_sample=None):
     classes = torch.arange(10).to(device)
     samples = generate_samples(model, classes, num_steps=steps, fixed_sample=fixed_sample)
-    # Convert samples from (B, C, H, W) to (B, H, W, C) for RGB representation
-    samples = samples.clamp(0, 1).cpu().numpy().transpose(0, 2, 3, 1)
+    samples = samples.permute(0, 2, 3, 1).cpu().numpy()  # Convert to (B, H, W, C) for RGB images
     fig, axes = plt.subplots(2, 5, figsize=(10, 4))
     for i, ax in enumerate(axes.flat):
-        ax.imshow(samples[i])
+        ax.imshow(((samples[i]+1)/2 * 255).astype('uint8'))  # Scale to [0, 255] and convert to uint8
         ax.axis('off')
-        ax.set_title(f"object {i}")
-    plt.suptitle("Generated sample objects")
+        ax.set_title(f"Class {i}")
+    plt.suptitle("Generated sample images")
     plt.tight_layout()
-    plt.savefig(f"CIFAR10_Experiments/Output/sample_objects-{steps}-steps.png")
+    plt.savefig(f"CIFAR10_Experiments/Output/sample_images-{steps}-steps.png")
 
 def train_model():
-    batch_size = 64
-    num_epochs = 100
+    batch_size = 128
+    num_epochs = 200
     learning_rate = 3e-4
-    weight_decay = 1e-3
+    weight_decay = 1e-2
     layers = 3
-    channels = 32
+    channels = 64
+    heads = 4
     dataloader = get_dataloader(batch_size)
     
-    model = AttenUNet(3, 3, layers, channels).to(device)
-    # model = torch.compile(model)
-    # print("Starting training flow matching model...")
-    # print(f"Number of parameters: {sum(p.numel() for p in model.parameters())}")
-    # train_flow_matching(model, dataloader, num_epochs=num_epochs, lr=learning_rate, wd=weight_decay)
-    model.load_state_dict(torch.load("CIFAR10_Experiments/Output/CIFAR10_flow_model.pth", weights_only=True))
+    model = AttenUNet(layers, channels, heads).to(device)
 
-    print("Generating samples...")
-    steps = [1, 2, 3, 4, 5, 10, 20, 50]
-    fixed_sample = torch.randn(10, 3, 32, 32, device=device)
-    for step in steps:
-        plot_object_samples(model, step, fixed_sample)
+    torch.backends.cudnn.enabled = True
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.set_float32_matmul_precision('high')
+
+    print("Starting training flow matching model...")
+    print(f"Number of parameters: {sum(p.numel() for p in model.parameters())}")
+    train_flow_matching(model, dataloader, num_epochs=num_epochs, lr=learning_rate, wd=weight_decay)
 
 if __name__ == '__main__':
     os.makedirs("CIFAR10_Experiments/Output", exist_ok=True)
