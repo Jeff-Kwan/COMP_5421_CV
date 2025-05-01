@@ -16,6 +16,22 @@ import matplotlib.pyplot as plt
 
 from AttnUNet2 import AttenUNet
 
+
+def drop_oldest_put(q: queue.Queue, item):
+    """
+    Try to put item into q without blocking. If q is full,
+    drop the oldest element and then enqueue the new item.
+    """
+    try:
+        q.put(item, block=False)
+    except queue.Full:
+        try:
+            q.get(block=False)
+        except queue.Empty:
+            pass
+        q.put(item, block=False)
+
+
 @torch.no_grad()
 def generate_samples(model, classes, num_steps, device):
     model.eval()
@@ -23,25 +39,25 @@ def generate_samples(model, classes, num_steps, device):
     x = torch.randn(B, 1, 28, 28, device=device)
     t = 0.0
     dt = 1.0 / num_steps
-    with torch.no_grad():
-        for _ in range(num_steps):
-            t_tensor = torch.full((B,), t, device=device)
-            v = model(x, t_tensor, classes)
-            x = x + dt * v
-            t += dt
+    for _ in range(num_steps):
+        t_tensor = torch.full((B,), t, device=device)
+        v = model(x, t_tensor, classes)
+        x = x + dt * v
+        t += dt
     return x.clamp(-1.0, 1.0)
+
 
 @torch.no_grad()
 def generate_synthetic(model, device_gen, device_train, q, args, stop_event, reload_event):
     """
     Continuously generate (x0, x1, cls) tuples.
+    If the queue is full, drop the oldest before inserting new.
     Whenever reload_event is set, reloads the latest checkpoint.
     """
     batch_gen   = args["batch_gen"]
     batch_train = args["batch_train"]
     num_steps   = args["gen_steps"]
     num_classes = args.get("num_classes", 10)
-    dt          = 1.0 / num_steps
     ckpt_path   = os.path.join(args["save_path"], "MNIST_bootstrapping-rectified.pth")
 
     model = model.to(device_gen)
@@ -49,25 +65,20 @@ def generate_synthetic(model, device_gen, device_train, q, args, stop_event, rel
     while not stop_event.is_set():
         if reload_event.is_set():
             try:
-                state = torch.load(ckpt_path, map_location="cpu")
-                model.load_state_dict(state)
-                model.to(device_gen)
+                model.load_state_dict(torch.load(ckpt_path, map_location="cpu"))
                 print(f"[{device_gen}] Reloaded weights from {ckpt_path}")
             except Exception as e:
                 print(f"[{device_gen}] Failed to reload weights: {e}")
-            try:
-                with q.mutex:
-                   q.queue.clear()
-                print(f"Cleared queue")
-            except Exception as e:
-                print(f"Failed to clear queue: {e}")
             reload_event.clear()
 
+        # sample a batch of classes and noise
         cls = torch.randint(0, num_classes, (batch_gen,), device=device_gen)
         x0  = torch.randn(batch_gen, 1, 28, 28, device=device_gen)
         x   = x0.clone()
         t   = 0.0
+        dt  = 1.0 / num_steps
 
+        # integrate forward ODE
         for _ in range(num_steps):
             t_tensor = torch.full((batch_gen,), t, device=device_gen)
             v        = model(x, t_tensor, cls)
@@ -75,17 +86,19 @@ def generate_synthetic(model, device_gen, device_train, q, args, stop_event, rel
             t       += dt
         x1 = x.clamp(-1.0, 1.0)
 
+        # push sub‐batches into the queue,
+        # dropping oldest when full
         for x0_c, x1_c, cls_c in zip(
                 x0.split(batch_train),
                 x1.split(batch_train),
                 cls.split(batch_train)
         ):
-            q.put((
+            sample = (
                 x0_c.to(device_train, non_blocking=True),
                 x1_c.to(device_train, non_blocking=True),
                 cls_c.to(device_train, non_blocking=True),
-            ))
-    return
+            )
+            drop_oldest_put(q, sample)
 
 
 def train_2rectified_flow(model, device_train, q, args, stop_event, mnist_loader, reload_event):
@@ -187,7 +200,6 @@ def train_2rectified_flow(model, device_train, q, args, stop_event, mnist_loader
             plt.xlabel('Training Step')
             plt.ylabel('Average Loss')
             plt.title('Average Training Loss per Checkpoint')
-            plt.grid(True)
             plt.tight_layout()
             plt.savefig(os.path.join(save_path, "loss_bootstrap.png"))
             plt.close()
@@ -285,9 +297,9 @@ if __name__ == "__main__":
         "layers":           3,
         "channels":        16,
         "heads":            2,
-        "batch_gen":      512,
+        "batch_gen":      2048,
         "batch_train":    128,
-        "queue_size":      128,
+        "queue_size":      256,
         "gen_steps":       20,
         "train_steps":  40000,
         "lr":           3e-4,
