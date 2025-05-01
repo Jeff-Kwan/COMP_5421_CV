@@ -260,7 +260,7 @@ if __name__ == "__main__":
         "batch_train":    128,
         "queue_size":      64,
         "gen_steps":       20,
-        "train_steps":  50000,
+        "train_steps":  30000,
         "lr":           3e-4,
         "wd":            1e-2,
         "num_classes":    10,
