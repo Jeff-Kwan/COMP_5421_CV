@@ -48,7 +48,7 @@ def drop_oldest_put(q: queue.Queue, item):
 
 
 @torch.no_grad()
-def generate_synthetic_cpu_queue(model, device_gen, q, args, stop_event, reload_event):
+def generate_synthetic(model, device_gen, q, args, stop_event, reload_event):
     """
     Continuously generate (x0, x1, cls) tuples **on CPU**.
     If the queue is full, drop the oldest before inserting new.
@@ -97,7 +97,7 @@ def generate_synthetic_cpu_queue(model, device_gen, q, args, stop_event, reload_
             drop_oldest_put(q, sample)
 
 
-def train_2rectified_flow_cpu_queue(model, device_train, q, args, stop_event, mnist_loader, reload_event):
+def train_2rectified_flow(model, device_train, q, args, stop_event, mnist_loader, reload_event):
     """
     Exactly as before, except each synthetic batch is moved
     from CPU→GPU here (so cuda:0 isn’t constantly hit by generators).
